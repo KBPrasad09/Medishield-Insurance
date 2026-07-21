@@ -8,3 +8,4 @@ dataset/
 .chroma/
 *.db
 backend/storage/
+dataset/ground_truth.json

@@ -15,7 +15,9 @@ from __future__ import annotations
 import logging
 
 from . import db
+from .agents.claims import run_claims
 from .agents.classifier import classify_document
+from .agents.kyc import run_kyc
 from .config import CONFIDENCE_THRESHOLD
 from .schemas import CaseStatus, DocType
 
@@ -37,15 +39,31 @@ def process_document(doc_id: str) -> None:
         if result.doc_type == DocType.UNKNOWN or low_conf:
             # Out-of-domain or unreliable -> human review queue (per brief).
             db.update_case_status(doc.case_id, CaseStatus.NEEDS_REVIEW)
-        else:
-            db.update_case_status(doc.case_id, CaseStatus.CLASSIFIED)
+            log.info("Classified %s -> %s (conf=%.2f) [review]",
+                     doc_id, result.doc_type.value, result.confidence)
+            return
 
-        log.info(
-            "Classified %s -> %s (conf=%.2f)",
-            doc_id,
-            result.doc_type.value,
-            result.confidence,
-        )
+        db.update_case_status(doc.case_id, CaseStatus.PROCESSING)
+        log.info("Classified %s -> %s (conf=%.2f)",
+                 doc_id, result.doc_type.value, result.confidence)
+
+        # Route to the specialist agent for this document type.
+        _run_specialist(doc_id, doc.stored_path, result.doc_type)
+
     except Exception:  # noqa: BLE001 - never let a background task crash silently
         log.exception("Classification failed for %s", doc_id)
         db.update_case_status(doc.case_id, CaseStatus.FAILED)
+
+
+def _run_specialist(doc_id: str, path: str, doc_type: DocType) -> None:
+    """Dispatch a classified document to its specialist agent (Day 3 subset)."""
+    if doc_type == DocType.ID_DOCUMENT:
+        kyc = run_kyc(path)
+        db.set_document_kyc(doc_id, kyc)
+        log.info("KYC %s -> passed=%s flags=%s", doc_id, kyc.kyc_passed, kyc.flags)
+    elif doc_type == DocType.CLAIM_FORM:
+        claims = run_claims(path)
+        db.set_document_claims(doc_id, claims)
+        log.info("Claims %s -> schema_valid=%s errors=%s",
+                 doc_id, claims.schema_valid, claims.validation_errors)
+    # DISCHARGE_SUMMARY / PRESCRIPTION / POLICY_AMENDMENT specialists come later.
