@@ -20,7 +20,7 @@ ANTHROPIC_API_KEY: str | None = os.getenv("ANTHROPIC_API_KEY")
 
 # Vision-capable model for the classifier / OCR / specialist agents.
 # Overridable via .env so the model can be swapped without touching code.
-CLASSIFIER_MODEL: str = os.getenv("CLASSIFIER_MODEL", "claude-sonnet-4-20250514")
+CLASSIFIER_MODEL: str = os.getenv("CLASSIFIER_MODEL", "claude-sonnet-5")
 
 # Below this, the classifier's call is treated as unreliable and the case is
 # routed to the human review queue (brief: low-confidence -> human review).

@@ -114,7 +114,6 @@ def classify_document(image_path: str, client: anthropic.Anthropic | None = None
     response = client.messages.create(
         model=CLASSIFIER_MODEL,
         max_tokens=512,
-        temperature=0,
         system=_SYSTEM_PROMPT,
         tools=[_CLASSIFY_TOOL],
         tool_choice={"type": "tool", "name": "record_classification"},
