@@ -24,7 +24,8 @@ import json
 
 import anthropic
 
-from ..config import CLASSIFIER_MODEL, require_api_key
+from ..config import CLASSIFIER_MODEL
+from ..llm import get_client
 from ..schemas import Case, DocType, FraudOutput, RiskLevel
 from .vision import encode
 
@@ -177,7 +178,7 @@ def assess_fraud(case: Case, client: anthropic.Anthropic | None = None,
     signals = _rule_signals(case)
 
     if use_llm:
-        client = client or anthropic.Anthropic(api_key=require_api_key())
+        client = client or get_client()
         try:
             signals += _llm_anomaly_pass(case, client)
         except Exception as exc:  # noqa: BLE001 - LLM pass is best-effort

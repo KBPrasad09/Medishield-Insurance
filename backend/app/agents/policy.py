@@ -15,8 +15,10 @@ from __future__ import annotations
 import anthropic
 
 from .. import policy_rag
-from ..config import CLASSIFIER_MODEL, require_api_key
+from ..config import CLASSIFIER_MODEL
+from ..llm import get_client
 from ..schemas import PolicyOutput
+from .vision import as_str_list
 
 _SYSTEM_PROMPT = """You are the Policy Agent for MediShield health insurance. \
 You decide whether the procedures on a claim are covered under the member's plan.
@@ -81,7 +83,7 @@ def run_policy(
         "Decide coverage for these procedures."
     )
 
-    client = client or anthropic.Anthropic(api_key=require_api_key())
+    client = client or get_client()
     response = client.messages.create(
         model=CLASSIFIER_MODEL,
         max_tokens=1024,
@@ -96,7 +98,7 @@ def run_policy(
         covered=bool(data.get("covered", False)),
         coverage_percentage=data.get("coverage_percentage"),
         policy_clause=data.get("policy_clause"),
-        exclusions=data.get("exclusions", []) or [],
+        exclusions=as_str_list(data.get("exclusions")),
         confidence=float(data.get("confidence", 0.0)),
         notes=f"Retrieved {len(clauses)} clause(s) for {plan_tier} plan.",
     )

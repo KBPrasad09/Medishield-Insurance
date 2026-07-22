@@ -18,22 +18,16 @@ Reliability choices (worth explaining in the demo):
 
 from __future__ import annotations
 
-import base64
 from pathlib import Path
 
 import anthropic
 
-from ..config import CLASSIFIER_MODEL, require_api_key
+from ..config import CLASSIFIER_MODEL
+from ..llm import get_client
 from ..schemas import ClassifierOutput, DocType
-
-_MEDIA_TYPES = {
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".tif": "image/tiff",
-    ".tiff": "image/tiff",
-    ".pdf": "application/pdf",
-}
+from .vision import as_str_list
+from .vision import encode as _encode_image
+from .vision import _content_block
 
 _SYSTEM_PROMPT = """You are the Classifier Agent in MediShield's insurance \
 document intake pipeline. You are shown a single scanned document image. \
@@ -87,29 +81,12 @@ _CLASSIFY_TOOL = {
 }
 
 
-def _encode(path: Path) -> tuple[str, str]:
-    media_type = _MEDIA_TYPES.get(path.suffix.lower())
-    if media_type is None:
-        raise ValueError(f"Unsupported file type for classification: {path.suffix}")
-    data = base64.standard_b64encode(path.read_bytes()).decode("utf-8")
-    return media_type, data
-
-
-def _content_block(media_type: str, data: str) -> dict:
-    # PDFs go in a 'document' block; images in an 'image' block.
-    kind = "document" if media_type == "application/pdf" else "image"
-    return {
-        "type": kind,
-        "source": {"type": "base64", "media_type": media_type, "data": data},
-    }
-
-
 def classify_document(image_path: str, client: anthropic.Anthropic | None = None) -> ClassifierOutput:
     """Classify one document image. `client` is injectable for testing."""
     path = Path(image_path)
-    media_type, data = _encode(path)
+    media_type, data = _encode_image(path)  # shared encoder (downscales images)
 
-    client = client or anthropic.Anthropic(api_key=require_api_key())
+    client = client or get_client()
 
     response = client.messages.create(
         model=CLASSIFIER_MODEL,
@@ -132,7 +109,7 @@ def classify_document(image_path: str, client: anthropic.Anthropic | None = None
     return ClassifierOutput(
         doc_type=DocType(tool_input["doc_type"]),
         confidence=float(tool_input.get("confidence", 0.0)),
-        routing_tags=tool_input.get("routing_tags", []) or [],
+        routing_tags=as_str_list(tool_input.get("routing_tags")),
         notes=tool_input.get("notes"),
     )
 

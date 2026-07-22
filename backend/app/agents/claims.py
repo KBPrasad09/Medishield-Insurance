@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 
 from ..schemas import ClaimsOutput
-from .vision import extract
+from .vision import as_str_list, extract
 
 _SYSTEM_PROMPT = """You are the Claims Agent in an insurance intake pipeline. \
 You are shown a scanned health insurance claim form (CMS-1500 or UB-04). \
@@ -48,8 +48,8 @@ def run_claims(image_path: str, client=None) -> ClaimsOutput:
     data = extract(image_path, _SYSTEM_PROMPT, _TOOL, client=client)
 
     amount = data.get("claim_amount")
-    icd = [c.strip() for c in data.get("icd10_codes", []) if c and c.strip()]
-    cpt = [c.strip() for c in data.get("cpt_codes", []) if c and c.strip()]
+    icd = as_str_list(data.get("icd10_codes"))
+    cpt = as_str_list(data.get("cpt_codes"))
     npi = (data.get("provider_npi") or "").strip()
     service_date = (data.get("service_date") or "").strip()
     policy_number = (data.get("member_policy_number") or "").strip()

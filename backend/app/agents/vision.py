@@ -14,7 +14,8 @@ from pathlib import Path
 
 import anthropic
 
-from ..config import CLASSIFIER_MODEL, require_api_key
+from ..config import CLASSIFIER_MODEL
+from ..llm import get_client
 
 _MEDIA_TYPES = {
     ".png": "image/png",
@@ -26,12 +27,56 @@ _MEDIA_TYPES = {
 }
 
 
+# Anthropic's vision guidance: long edge <= 1568px and payload well under the
+# 10 MB hard limit. We downscale/recompress images to satisfy both.
+_MAX_EDGE = 1568
+_MAX_BYTES = 4_500_000
+
+
 def encode(path: Path) -> tuple[str, str]:
     media_type = _MEDIA_TYPES.get(path.suffix.lower())
     if media_type is None:
         raise ValueError(f"Unsupported file type: {path.suffix}")
-    data = base64.standard_b64encode(path.read_bytes()).decode("utf-8")
-    return media_type, data
+
+    # PDFs pass through untouched.
+    if media_type == "application/pdf":
+        data = base64.standard_b64encode(path.read_bytes()).decode("utf-8")
+        return media_type, data
+
+    # Images: downscale the long edge and recompress until safely small.
+    from io import BytesIO
+
+    from PIL import Image
+
+    img = Image.open(path).convert("RGB")
+    if max(img.size) > _MAX_EDGE:
+        ratio = _MAX_EDGE / max(img.size)
+        img = img.resize((round(img.width * ratio), round(img.height * ratio)))
+
+    quality = 90
+    while True:
+        buf = BytesIO()
+        img.save(buf, format="JPEG", quality=quality)
+        raw = buf.getvalue()
+        if len(raw) <= _MAX_BYTES or quality <= 40:
+            break
+        quality -= 15
+    data = base64.standard_b64encode(raw).decode("utf-8")
+    return "image/jpeg", data
+
+
+def as_str_list(v) -> list[str]:
+    """Coerce a model-returned value into a clean list of strings.
+
+    Vision models occasionally return an array field as a comma-separated string
+    ('a, b, c') instead of a JSON list. Normalize both forms so downstream
+    parsing and Pydantic validation never break mid-run.
+    """
+    if isinstance(v, list):
+        return [str(x).strip() for x in v if str(x).strip()]
+    if isinstance(v, str):
+        return [s.strip() for s in v.split(",") if s.strip()]
+    return []
 
 
 def _content_block(media_type: str, data: str) -> dict:
@@ -53,7 +98,7 @@ def extract(
     """Run one forced-tool vision call and return the tool_use input dict."""
     path = Path(image_path)
     media_type, data = encode(path)
-    client = client or anthropic.Anthropic(api_key=require_api_key())
+    client = client or get_client()
 
     response = client.messages.create(
         model=CLASSIFIER_MODEL,
