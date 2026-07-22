@@ -64,19 +64,17 @@ def run_kyc(image_path: str, client=None) -> KYCOutput:
     id_expired = bool(data.get("appears_expired", False))
     tampered = bool(data.get("tamper_suspected", False))
 
-    # ---- Database validation -------------------------------------------
-    member = member_db.find_member_by_name(full_name)
-    if member is None and data.get("id_number"):
-        member = member_db.find_member_by_policy(data["id_number"])
-
-    id_matched = member is not None
-    dob_matches = bool(member) and _norm(member["dob"]) == _norm(dob)
-    # If we found the member but the DOB disagrees, treat identity as unverified.
-    member_id_matched = id_matched and (dob_matches or not dob)
+    # ---- Database validation (robust to OCR/format variance) -----------
+    member, name_matches = member_db.match_identity(full_name, dob)
+    member_id_matched = member is not None and name_matches
 
     flags: list[str] = []
-    if not member_id_matched:
+    if member is None:
         flags.append("member_not_matched")
+    elif not name_matches:
+        # Last name + DOB found the policyholder, but the first name differs —
+        # this is the name-swap fraud pattern, not a simple lookup miss.
+        flags.append("name_mismatch")
     if id_expired:
         flags.append("id_expired")
     if tampered:
@@ -87,6 +85,11 @@ def run_kyc(image_path: str, client=None) -> KYCOutput:
     notes = data.get("tamper_notes") or None
     if member is None:
         notes = (notes + " | " if notes else "") + f"No member on file for '{full_name}'."
+    elif not name_matches:
+        notes = (notes + " | " if notes else "") + (
+            f"Last name + DOB match {member['full_name']}, but first name differs "
+            f"(ID reads '{full_name}')."
+        )
 
     return KYCOutput(
         kyc_passed=kyc_passed,

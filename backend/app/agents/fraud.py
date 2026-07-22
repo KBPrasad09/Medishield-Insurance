@@ -71,11 +71,12 @@ def _rule_signals(case: Case) -> list[tuple[str, float]]:
                      f"({', '.join(cl.icd10_codes)})", 0.85)
                 )
 
-    # name_mismatch: an ID whose holder isn't the policyholder on file.
+    # name_mismatch: last name + DOB match the policyholder, but the first name
+    # differs — the injected name-swap fraud. (A generic member_not_matched from
+    # an OCR miss does NOT trigger this.)
     for d in id_docs:
-        if d.kyc and "member_not_matched" in d.kyc.flags and not d.kyc.id_expired \
-                and not d.kyc.tamper_suspected:
-            signals.append(("name_mismatch: ID name does not match policyholder on file", 0.8))
+        if d.kyc and "name_mismatch" in d.kyc.flags:
+            signals.append(("name_mismatch: ID first name does not match policyholder on file", 0.8))
 
     return signals
 
@@ -151,8 +152,12 @@ def _llm_anomaly_pass(case: Case, client: anthropic.Anthropic) -> list[tuple[str
         signals.append(("readmission_30d: prior admission < 30 days before current", 0.8))
     if data.get("date_conflict"):
         signals.append(("date_conflict: prescription dated 45+ days after service", 0.8))
+    # The model's free-text observations are recorded for transparency but carry
+    # ZERO weight: only the two temporal fraud patterns above may raise the score.
+    # (Coverage issues like "procedure unrelated to diagnosis" are the Policy
+    # agent's job, not fraud — otherwise we double-count the same fact.)
     for a in data.get("anomalies", []):
-        signals.append((f"llm_anomaly: {a}", 0.5))
+        signals.append((f"note: {a}", 0.0))
     return signals
 
 

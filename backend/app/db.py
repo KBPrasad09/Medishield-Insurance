@@ -33,6 +33,7 @@ from .schemas import (
     Document,
     FraudOutput,
     KYCOutput,
+    OrchestratorDecision,
     PolicyOutput,
 )
 
@@ -215,6 +216,14 @@ def set_case_fraud(case_id: str, result: FraudOutput) -> None:
     with _connect() as conn:
         conn.execute(
             "UPDATE cases SET fraud = ?, updated_at = ? WHERE case_id = ?",
+            (result.model_dump_json(), datetime.utcnow().isoformat(), case_id),
+        )
+
+
+def set_case_decision(case_id: str, result: OrchestratorDecision) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE cases SET decision = ?, updated_at = ? WHERE case_id = ?",
             (result.model_dump_json(), datetime.utcnow().isoformat(), case_id),
         )
 

@@ -27,7 +27,7 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import db, pipeline, storage
+from . import db, graph, pipeline, storage
 from .schemas import Case, CaseSummary, Document
 
 ALLOWED_CONTENT = {
@@ -112,4 +112,14 @@ def get_case(case_id: str) -> Case:
     case = db.get_case(case_id)
     if case is None:
         raise HTTPException(status_code=404, detail=f"No case {case_id!r}")
+    return case
+
+
+@app.post("/cases/{case_id}/finalize", response_model=Case)
+def finalize_case(case_id: str) -> Case:
+    """Run the case-level decision graph (Fraud -> Orchestrator) and return the
+    decided case. Call once all of a case's documents have been uploaded."""
+    if db.get_case(case_id) is None:
+        raise HTTPException(status_code=404, detail=f"No case {case_id!r}")
+    case = graph.run_case_decision(case_id)
     return case

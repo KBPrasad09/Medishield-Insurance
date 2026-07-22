@@ -47,3 +47,56 @@ def find_member_by_name(full_name: str) -> Optional[dict]:
             (full_name.strip(),),
         ).fetchone()
     return dict(row) if row else None
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Robust identity matching (tolerant of OCR/format variance)
+# ──────────────────────────────────────────────────────────────────────
+def _name_tokens(name: str) -> list[str]:
+    """Lowercased alphabetic tokens of length >= 2 (drops middle initials)."""
+    import re
+
+    return [t for t in re.findall(r"[A-Za-z]{2,}", (name or "").lower())]
+
+
+def _dob_digits(dob: str) -> str:
+    import re
+
+    return re.sub(r"\D", "", dob or "")
+
+
+def match_identity(full_name: str, dob: str) -> tuple[Optional[dict], bool]:
+    """
+    Match an ID's (name, dob) against the member roster.
+
+    Returns (member, first_name_matches):
+      - member is the roster record whose LAST NAME + DOB agree with the ID
+        (robust anchor — last names and DOBs are printed clearly), or None if
+        no such person is on file.
+      - first_name_matches is True only if the ID's first name also agrees. A
+        found member with a mismatching first name is exactly the injected
+        name-swap fraud (e.g. "Mary" printed as "Mery").
+    """
+    id_tokens = _name_tokens(full_name)
+    id_dob = _dob_digits(dob)
+    if not id_tokens:
+        return None, False
+    id_first, id_last = id_tokens[0], id_tokens[-1]
+
+    with _connect() as conn:
+        rows = [dict(r) for r in conn.execute("SELECT * FROM members").fetchall()]
+
+    # Primary: last name + DOB anchor.
+    for m in rows:
+        mt = _name_tokens(m["full_name"])
+        if not mt:
+            continue
+        if mt[-1] == id_last and id_dob and _dob_digits(m["dob"]) == id_dob:
+            return m, (mt[0] == id_first)
+
+    # Fallback: exact full-name token set (when DOB is unreadable).
+    for m in rows:
+        if set(_name_tokens(m["full_name"])) == set(id_tokens):
+            return m, True
+
+    return None, False
