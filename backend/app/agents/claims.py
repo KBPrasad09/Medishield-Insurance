@@ -31,6 +31,8 @@ _TOOL = {
             "cpt_codes": {"type": "array", "items": {"type": "string"}},
             "provider_npi": {"type": "string", "description": "Rendering provider NPI."},
             "service_date": {"type": "string", "description": "Date of service."},
+            "member_policy_number": {"type": "string",
+                "description": "Insured's member/policy number (e.g. MED-GLD-1234567)."},
             "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
         },
         "required": ["icd10_codes", "cpt_codes", "confidence"],
@@ -50,6 +52,7 @@ def run_claims(image_path: str, client=None) -> ClaimsOutput:
     cpt = [c.strip() for c in data.get("cpt_codes", []) if c and c.strip()]
     npi = (data.get("provider_npi") or "").strip()
     service_date = (data.get("service_date") or "").strip()
+    policy_number = (data.get("member_policy_number") or "").strip()
 
     errors: list[str] = []
     if amount is None:
@@ -79,6 +82,7 @@ def run_claims(image_path: str, client=None) -> ClaimsOutput:
         cpt_codes=cpt,
         provider_npi=npi or None,
         service_date=service_date or None,
+        member_policy_number=policy_number or None,
         schema_valid=schema_valid,
         validation_errors=errors,
         confidence=float(data.get("confidence", 0.0)),

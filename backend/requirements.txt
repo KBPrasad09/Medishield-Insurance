@@ -4,3 +4,8 @@ pydantic==2.10.3
 python-multipart==0.0.19
 anthropic==0.40.0
 python-dotenv==1.0.1
+qdrant-client[fastembed]==1.12.1
+pymupdf==1.25.1
+# Optional (brief names Docling for PDF ingestion). If it installs cleanly the
+# pipeline uses it; otherwise it silently falls back to PyMuPDF above.
+# docling==2.15.1

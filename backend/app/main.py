@@ -13,6 +13,7 @@ the case through the LangGraph state machine.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Optional
 
@@ -46,6 +47,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# Surface agent progress logs (KYC/Claims/Policy/Fraud) in the console — useful
+# for the demo and for watching a case move through the pipeline.
+_handler = logging.StreamHandler()
+_handler.setFormatter(logging.Formatter("%(levelname)s:     [%(name)s] %(message)s"))
+_agent_log = logging.getLogger("medishield")
+if not _agent_log.handlers:
+    _agent_log.addHandler(_handler)
+_agent_log.setLevel(logging.INFO)
+_agent_log.propagate = False
 
 # Ensure tables exist however the app is launched (uvicorn, tests, imports).
 db.init_db()

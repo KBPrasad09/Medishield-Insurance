@@ -94,6 +94,7 @@ class ClaimsOutput(BaseAgentOutput):
     cpt_codes: list[str] = Field(default_factory=list)
     provider_npi: Optional[str] = None
     service_date: Optional[str] = None  # ISO date string; kept as str for OCR tolerance
+    member_policy_number: Optional[str] = None  # used to resolve the plan tier
     schema_valid: bool = False
     validation_errors: list[str] = Field(default_factory=list)
 

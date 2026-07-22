@@ -31,7 +31,9 @@ from .schemas import (
     ClassifierOutput,
     Decision,
     Document,
+    FraudOutput,
     KYCOutput,
+    PolicyOutput,
 )
 
 DB_PATH = Path(__file__).resolve().parent.parent / "medishield.db"
@@ -198,6 +200,22 @@ def set_document_claims(doc_id: str, result: ClaimsOutput) -> None:
         conn.execute(
             "UPDATE documents SET claims = ? WHERE doc_id = ?",
             (result.model_dump_json(), doc_id),
+        )
+
+
+def set_document_policy(doc_id: str, result: PolicyOutput) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE documents SET policy = ? WHERE doc_id = ?",
+            (result.model_dump_json(), doc_id),
+        )
+
+
+def set_case_fraud(case_id: str, result: FraudOutput) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE cases SET fraud = ?, updated_at = ? WHERE case_id = ?",
+            (result.model_dump_json(), datetime.utcnow().isoformat(), case_id),
         )
 
 

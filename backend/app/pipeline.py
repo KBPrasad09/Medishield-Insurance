@@ -18,8 +18,15 @@ from . import db
 from .agents.claims import run_claims
 from .agents.classifier import classify_document
 from .agents.kyc import run_kyc
+from .agents.policy import run_policy
 from .config import CONFIDENCE_THRESHOLD
 from .schemas import CaseStatus, DocType
+
+
+def _plan_tier_from_policy(policy_number: str | None) -> str:
+    if policy_number and "SLV" in policy_number.upper():
+        return "SILVER"
+    return "GOLD"  # default plan when the number is unreadable
 
 log = logging.getLogger("medishield.pipeline")
 
@@ -66,4 +73,13 @@ def _run_specialist(doc_id: str, path: str, doc_type: DocType) -> None:
         db.set_document_claims(doc_id, claims)
         log.info("Claims %s -> schema_valid=%s errors=%s",
                  doc_id, claims.schema_valid, claims.validation_errors)
+
+        # Policy RAG depends on the CPT codes the Claims agent just extracted.
+        if claims.cpt_codes:
+            tier = _plan_tier_from_policy(claims.member_policy_number)
+            diagnosis = claims.icd10_codes[0] if claims.icd10_codes else None
+            policy = run_policy(claims.cpt_codes, tier, diagnosis)
+            db.set_document_policy(doc_id, policy)
+            log.info("Policy %s -> covered=%s exclusions=%s",
+                     doc_id, policy.covered, policy.exclusions)
     # DISCHARGE_SUMMARY / PRESCRIPTION / POLICY_AMENDMENT specialists come later.
