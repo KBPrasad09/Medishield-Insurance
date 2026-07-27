@@ -42,11 +42,19 @@ from app.agents.fraud import assess_fraud  # noqa: E402
 from app.agents.kyc import run_kyc  # noqa: E402
 from app.agents.orchestrator import decide  # noqa: E402
 from app.agents.policy import run_policy  # noqa: E402
-from app.schemas import Case, Document, DocType  # noqa: E402
+from app.schemas import (  # noqa: E402
+    Case, ClaimsOutput, ClassifierOutput, Document, DocType,
+    FraudOutput, KYCOutput, PolicyOutput,
+)
 
 DATASET = REPO / "dataset"
 META_PATH = DATASET / "metadata.json"
 GT_PATH = DATASET / "ground_truth.json"
+CACHE_PATH = REPO / "eval" / "agent_cache.json"
+
+# Per-document agent outputs are cached by doc_id so decision-RULE changes can be
+# re-scored for free (no LLM calls). Delete agent_cache.json to force a fresh run.
+_CACHE: dict = {}
 
 CATEGORY_TO_DOCTYPE = {
     "claim_forms": DocType.CLAIM_FORM,
@@ -58,6 +66,29 @@ CATEGORY_TO_DOCTYPE = {
 }
 REQUIRED_CLAIM_FIELDS = ["claim_amount", "icd10_codes", "cpt_codes",
                          "provider_npi", "service_date"]
+
+
+def _load_cache(refresh: bool) -> None:
+    global _CACHE
+    if refresh or not CACHE_PATH.exists():
+        _CACHE = {}
+    else:
+        _CACHE = json.loads(CACHE_PATH.read_text())
+
+
+def _save_cache() -> None:
+    CACHE_PATH.write_text(json.dumps(_CACHE), encoding="utf-8")
+
+
+def _cached(key: str, cls, fn, replay: bool):
+    """Return cls(**cached) if present; else call fn(), cache its dump, return it."""
+    if key in _CACHE:
+        return cls(**_CACHE[key])
+    if replay:
+        raise RuntimeError(f"cache miss for {key} (replay mode; run without --replay first)")
+    out = fn()
+    _CACHE[key] = out.model_dump(mode="json")
+    return out
 
 
 def expected_decision(gt_cluster: dict) -> str:
@@ -83,7 +114,8 @@ def real_path(file_path: str) -> str:
 
 
 # ──────────────────────────────────────────────────────────────────────
-def evaluate(limit: int | None = None) -> dict:
+def evaluate(limit: int | None = None, only: set[str] | None = None,
+             replay: bool = False) -> dict:
     meta = json.loads(META_PATH.read_text())
     gt = {c["cluster_id"]: c for c in json.loads(GT_PATH.read_text())}
 
@@ -96,7 +128,10 @@ def evaluate(limit: int | None = None) -> dict:
             by_cluster[m["case_cluster_id"]].append(m)
 
     cluster_ids = sorted(by_cluster)
-    if limit:
+    if only:
+        cluster_ids = [c for c in cluster_ids if c in only]
+        unknowns = []  # skip unknowns when targeting specific clusters
+    elif limit:
         cluster_ids = cluster_ids[:limit]
 
     results = {
@@ -112,7 +147,7 @@ def evaluate(limit: int | None = None) -> dict:
 
     for cid in cluster_ids:
         try:
-            _evaluate_cluster(cid, by_cluster[cid], gt[cid], results)
+            _evaluate_cluster(cid, by_cluster[cid], gt[cid], results, replay)
         except Exception as exc:  # noqa: BLE001 - never abort a long run on one case
             print(f"  {cid}: ERROR {type(exc).__name__}: {exc}")
             results["rows"].append({"cluster": cid, "expected": "?", "got": "ERROR",
@@ -121,37 +156,42 @@ def evaluate(limit: int | None = None) -> dict:
     # ---- unknown documents (single-doc ESCALATE cases) -----------------
     for um in (unknowns if not limit else unknowns[:1]):
         try:
-            _evaluate_unknown(um, results)
+            _evaluate_unknown(um, results, replay)
         except Exception as exc:  # noqa: BLE001
             print(f"  {um['doc_id']}: ERROR {type(exc).__name__}: {exc}")
 
     return results
 
 
-def _evaluate_cluster(cid, docs_meta, gtc, results):
+def _evaluate_cluster(cid, docs_meta, gtc, results, replay=False):
     tier = plan_tier(gtc.get("policy", ""))
     documents: list[Document] = []
     claim_extract = None
 
     for dm in docs_meta:
         path = real_path(dm["file_path"])
+        did = dm["doc_id"]
         expected_dt = CATEGORY_TO_DOCTYPE[dm["category"]]
-        cls = classify_document(path)
+        cls = _cached(f"cls:{did}", ClassifierOutput,
+                      lambda p=path: classify_document(p), replay)
         results["cls_total"] += 1
         results["cls_correct"] += int(cls.doc_type == expected_dt)
         results["cls_confusion"][(expected_dt.value, cls.doc_type.value)] += 1
 
-        doc = Document(doc_id=dm["doc_id"], case_id=cid, filename=Path(path).name,
+        doc = Document(doc_id=did, case_id=cid, filename=Path(path).name,
                        stored_path=path, classification=cls)
 
         if cls.doc_type == DocType.ID_DOCUMENT:
-            doc.kyc = run_kyc(path)
+            doc.kyc = _cached(f"kyc:{did}", KYCOutput, lambda p=path: run_kyc(p), replay)
         elif cls.doc_type == DocType.CLAIM_FORM:
-            doc.claims = run_claims(path)
+            doc.claims = _cached(f"clm:{did}", ClaimsOutput,
+                                 lambda p=path: run_claims(p), replay)
             claim_extract = doc.claims
             if doc.claims.cpt_codes:
                 diag = doc.claims.icd10_codes[0] if doc.claims.icd10_codes else None
-                doc.policy = run_policy(doc.claims.cpt_codes, tier, diag)
+                cpts = doc.claims.cpt_codes
+                doc.policy = _cached(f"pol:{did}", PolicyOutput,
+                                     lambda: run_policy(cpts, tier, diag), replay)
         documents.append(doc)
 
     # ---- extraction scoring (on the primary claim) --------------------
@@ -173,33 +213,40 @@ def _evaluate_cluster(cid, docs_meta, gtc, results):
 
     # ---- fraud + decision ---------------------------------------------
     case = Case(case_id=cid, documents=documents)
-    case.fraud = assess_fraud(case)
+    case.fraud = _cached(f"frd:{cid}", FraudOutput, lambda: assess_fraud(case), replay)
     decision = decide(case)
     exp = expected_decision(gtc)
     got = decision.decision.value
     results["dec_total"] += 1
     results["dec_correct"] += int(got == exp)
     results["dec_confusion"][(exp, got)] += 1
+    # capture KYC flags across ID docs for diagnosis
+    kyc_flags = sorted({f for d in documents if d.kyc for f in d.kyc.flags})
     results["rows"].append({
         "cluster": cid, "expected": exp, "got": got,
         "fraud": case.fraud.fraud_score,
         "flags": gtc.get("edge_flags", []),
         "fraud_reason": gtc.get("fraud_reason"),
+        "justification": decision.justification,
+        "kyc_flags": kyc_flags,
     })
+    mark = "OK" if got == exp else "XX"
+    extra = "" if got == exp else f"  | {decision.justification}  kyc={kyc_flags}"
     print(f"  {cid}: decision {got:9} (expected {exp:9}) "
-          f"{'OK' if got == exp else 'XX'}  fraud={case.fraud.fraud_score}")
+          f"{mark}  fraud={case.fraud.fraud_score}{extra}")
 
 
-def _evaluate_unknown(um, results):
+def _evaluate_unknown(um, results, replay=False):
     path = real_path(um["file_path"])
-    cls = classify_document(path)
+    did = um["doc_id"]
+    cls = _cached(f"cls:{did}", ClassifierOutput, lambda: classify_document(path), replay)
     results["cls_total"] += 1
     results["cls_correct"] += int(cls.doc_type == DocType.UNKNOWN)
     results["cls_confusion"][("UNKNOWN", cls.doc_type.value)] += 1
-    doc = Document(doc_id=um["doc_id"], case_id=um["doc_id"], filename=Path(path).name,
+    doc = Document(doc_id=did, case_id=did, filename=Path(path).name,
                    stored_path=path, classification=cls)
-    case = Case(case_id=um["doc_id"], documents=[doc])
-    case.fraud = assess_fraud(case, use_llm=False)
+    case = Case(case_id=did, documents=[doc])
+    case.fraud = FraudOutput(fraud_score=0.0, confidence=0.8)
     decision = decide(case)
     exp, got = "ESCALATE", decision.decision.value
     results["dec_total"] += 1
@@ -276,10 +323,23 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=None,
                     help="only run the first N clusters (smoke test)")
+    ap.add_argument("--clusters", type=str, default=None,
+                    help="comma-separated cluster ids to run, e.g. C_006,C_010,C_016")
+    ap.add_argument("--replay", action="store_true",
+                    help="re-score from cached agent outputs (no LLM calls) — "
+                         "for tuning decision rules for free")
+    ap.add_argument("--refresh", action="store_true",
+                    help="ignore the cache and call the agents fresh")
     args = ap.parse_args()
 
+    only = {c.strip() for c in args.clusters.split(",")} if args.clusters else None
+    _load_cache(refresh=args.refresh)
     t0 = time.time()
-    print(f"Running eval{' (limit %d)' % args.limit if args.limit else ''} ...")
-    results = evaluate(limit=args.limit)
+    mode = ("replay" if args.replay else "clusters %s" % args.clusters if only
+            else "limit %d" % args.limit if args.limit else "full")
+    print(f"Running eval ({mode}) ...")
+    results = evaluate(limit=args.limit, only=only, replay=args.replay)
+    if not args.replay:
+        _save_cache()
     write_report(results)
     print(f"Done in {time.time() - t0:.0f}s")

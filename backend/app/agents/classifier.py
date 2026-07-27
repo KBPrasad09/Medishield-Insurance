@@ -23,7 +23,7 @@ from pathlib import Path
 import anthropic
 
 from ..config import CLASSIFIER_MODEL
-from ..llm import get_client
+from ..llm import cached_tool, get_client, system_block
 from ..schemas import ClassifierOutput, DocType
 from .vision import as_str_list
 from .vision import encode as _encode_image
@@ -43,9 +43,11 @@ diagnoses, treatment narrative.
 - UNKNOWN: anything that does not clearly fit the above (bank statements, utility \
 bills, blank scans, unrelated paperwork).
 
-Judge only from what is visible. If the document is blurry, blank, ambiguous, or \
-out-of-domain, classify as UNKNOWN and give a low confidence. Report confidence \
-as your true calibrated certainty from 0.0 to 1.0."""
+A document that is blurry, low-resolution, handwritten, faxed, or partially cut \
+off is STILL classified by its content type — do NOT default to UNKNOWN just \
+because scan quality is poor. Use UNKNOWN only when the document's TYPE genuinely \
+is not one of the five above (e.g. a bank statement, utility bill, or blank page). \
+Report confidence as your true calibrated certainty from 0.0 to 1.0."""
 
 # Tool schema = our output contract. The model must fill exactly these fields.
 _CLASSIFY_TOOL = {
@@ -91,8 +93,8 @@ def classify_document(image_path: str, client: anthropic.Anthropic | None = None
     response = client.messages.create(
         model=CLASSIFIER_MODEL,
         max_tokens=512,
-        system=_SYSTEM_PROMPT,
-        tools=[_CLASSIFY_TOOL],
+        system=system_block(_SYSTEM_PROMPT),
+        tools=[cached_tool(_CLASSIFY_TOOL)],
         tool_choice={"type": "tool", "name": "record_classification"},
         messages=[
             {

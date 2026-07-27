@@ -16,7 +16,7 @@ import anthropic
 
 from .. import policy_rag
 from ..config import CLASSIFIER_MODEL
-from ..llm import get_client
+from ..llm import cached_tool, get_client, system_block
 from ..schemas import PolicyOutput
 from .vision import as_str_list
 
@@ -87,8 +87,8 @@ def run_policy(
     response = client.messages.create(
         model=CLASSIFIER_MODEL,
         max_tokens=1024,
-        system=_SYSTEM_PROMPT,
-        tools=[_TOOL],
+        system=system_block(_SYSTEM_PROMPT),
+        tools=[cached_tool(_TOOL)],
         tool_choice={"type": "tool", "name": _TOOL["name"]},
         messages=[{"role": "user", "content": user_text}],
     )

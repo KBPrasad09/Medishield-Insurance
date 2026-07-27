@@ -20,8 +20,26 @@ from .config import require_api_key
 _TRACE = os.getenv("LANGSMITH_TRACING", "").lower() in ("1", "true", "yes")
 
 
+def system_block(text: str) -> list[dict]:
+    """Wrap a system prompt as a cacheable block.
+
+    With prompt caching, the (identical) system prompt across many document
+    calls is billed at ~10% on cache hits instead of full price. The cache is
+    written once and reused for ~5 minutes, so a batch run (or the eval) reuses
+    it across every call. No-op if the prefix is below the model's minimum
+    cacheable size — the request still succeeds.
+    """
+    return [{"type": "text", "text": text, "cache_control": {"type": "ephemeral"}}]
+
+
+def cached_tool(tool: dict) -> dict:
+    """Mark a tool definition as cacheable (same static schema every call)."""
+    return {**tool, "cache_control": {"type": "ephemeral"}}
+
+
 def get_client() -> anthropic.Anthropic:
-    client = anthropic.Anthropic(api_key=require_api_key())
+    # max_retries handles transient 429/500/529 (overloaded) with backoff.
+    client = anthropic.Anthropic(api_key=require_api_key(), max_retries=6)
     if _TRACE:
         try:
             from langsmith.wrappers import wrap_anthropic

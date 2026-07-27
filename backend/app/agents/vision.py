@@ -15,7 +15,7 @@ from pathlib import Path
 import anthropic
 
 from ..config import CLASSIFIER_MODEL
-from ..llm import get_client
+from ..llm import cached_tool, get_client, system_block
 
 _MEDIA_TYPES = {
     ".png": "image/png",
@@ -38,12 +38,16 @@ def encode(path: Path) -> tuple[str, str]:
     if media_type is None:
         raise ValueError(f"Unsupported file type: {path.suffix}")
 
-    # PDFs pass through untouched.
-    if media_type == "application/pdf":
-        data = base64.standard_b64encode(path.read_bytes()).decode("utf-8")
-        return media_type, data
+    raw = path.read_bytes()
 
-    # Images: downscale the long edge and recompress until safely small.
+    # PDFs, and any image already small enough, pass through UNTOUCHED so we
+    # never introduce compression artifacts (which the KYC agent could misread
+    # as tampering). Anthropic downscales oversized images server-side anyway.
+    if media_type == "application/pdf" or len(raw) <= _MAX_BYTES:
+        return media_type, base64.standard_b64encode(raw).decode("utf-8")
+
+    # Only oversized images are reprocessed: downscale, prefer lossless PNG,
+    # and fall back to JPEG only if PNG is still too large.
     from io import BytesIO
 
     from PIL import Image
@@ -53,16 +57,19 @@ def encode(path: Path) -> tuple[str, str]:
         ratio = _MAX_EDGE / max(img.size)
         img = img.resize((round(img.width * ratio), round(img.height * ratio)))
 
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    if len(buf.getvalue()) <= _MAX_BYTES:
+        return "image/png", base64.standard_b64encode(buf.getvalue()).decode("utf-8")
+
     quality = 90
     while True:
         buf = BytesIO()
         img.save(buf, format="JPEG", quality=quality)
-        raw = buf.getvalue()
-        if len(raw) <= _MAX_BYTES or quality <= 40:
+        if len(buf.getvalue()) <= _MAX_BYTES or quality <= 40:
             break
         quality -= 15
-    data = base64.standard_b64encode(raw).decode("utf-8")
-    return "image/jpeg", data
+    return "image/jpeg", base64.standard_b64encode(buf.getvalue()).decode("utf-8")
 
 
 def as_str_list(v) -> list[str]:
@@ -103,8 +110,8 @@ def extract(
     response = client.messages.create(
         model=CLASSIFIER_MODEL,
         max_tokens=max_tokens,
-        system=system_prompt,
-        tools=[tool],
+        system=system_block(system_prompt),
+        tools=[cached_tool(tool)],
         tool_choice={"type": "tool", "name": tool["name"]},
         messages=[
             {

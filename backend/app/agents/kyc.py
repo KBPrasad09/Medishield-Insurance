@@ -23,12 +23,21 @@ are shown a scanned identity document (driver's license, passport, state ID, \
 insurance card, or medicare card). Read it carefully and report exactly what is \
 printed.
 
-Pay special attention to:
-- Any visible "EXPIRED", "NOT VALID", or similar marking, or an expiration date \
-that has clearly passed -> set appears_expired = true.
-- Signs of tampering: mismatched fonts, misaligned text, digitally altered \
-fields, inconsistent backgrounds, pixelation around specific fields -> set \
-tamper_suspected = true and describe what you saw.
+EXPIRY — set appears_expired = true ONLY if the document displays an explicit \
+"EXPIRED", "NOT VALID", "CARD EXPIRED", or similar stamp/marking on its face. Do \
+NOT infer expiry by comparing the printed expiration date to today's date — many \
+valid cards have near-term expiration dates. Absent an explicit expired marking, \
+set appears_expired = false.
+
+TAMPERING — inspect the EXPIRATION DATE and other data fields closely. Set \
+tamper_suspected = true if a field (most often the expiration date) is rendered \
+in a noticeably LARGER font, a DIFFERENT COLOR, or shifted/misaligned relative to \
+the surrounding labels and values — telltale signs the value was digitally \
+overwritten. Also flag obviously mismatched fonts or patched-over text. Do NOT \
+flag general scan quality, blur, low resolution, or compression noise. When you \
+flag it, name the field and describe what looked altered (e.g. "expiry date is \
+larger and a different color than the other fields").
+
 Report values as printed; use empty string if a field is not present."""
 
 _TOOL = {

@@ -41,17 +41,35 @@ def decide(case: Case) -> OrchestratorDecision:
     policy_list = [d.policy for d in case.documents if d.policy]
     fraud = case.fraud
 
-    unknown_present = any(
+    # An UNKNOWN document only forces escalation when the case has NOTHING
+    # actionable — i.e. no recognizable ID or claim. A full patient case with a
+    # valid claim shouldn't be escalated just because one page (e.g. a blurry
+    # amendment) was misclassified; it's decided on its real signals instead.
+    has_actionable = any(
+        d.classification and d.classification.doc_type in
+        (DocType.ID_DOCUMENT, DocType.CLAIM_FORM)
+        for d in case.documents
+    )
+    unknown_only = (not has_actionable) and any(
         d.classification and d.classification.doc_type == DocType.UNKNOWN
         for d in case.documents
     )
     fraud_score = fraud.fraud_score if fraud else 0.0
-    tamper = any(k.tamper_suspected for k in kyc_list)
+    # Tamper is ADVISORY, not an auto-escalation trigger. A vision LLM's tamper
+    # judgement is too low-precision to gate decisions (high false-positive rate
+    # on scanned IDs). We surface it for the human reviewer instead; a production
+    # build would use dedicated image forensics (ELA) before acting on it.
+    tamper_advisory = any(k.tamper_suspected for k in kyc_list)
 
-    # Lowest confidence across every agent that ran.
+    # Confidence gate: consider only the agents that actually drive the
+    # decision — the classification of ID/claim docs plus their specialists and
+    # the fraud check. A low-confidence secondary page (blurry amendment, an
+    # unrecognized extra scan) must not by itself escalate an otherwise clean case.
     confidences: list[float] = []
     for d in case.documents:
-        if d.classification:
+        is_actionable = d.classification and d.classification.doc_type in (
+            DocType.ID_DOCUMENT, DocType.CLAIM_FORM)
+        if is_actionable:
             confidences.append(d.classification.confidence)
         if d.kyc:
             confidences.append(d.kyc.confidence)
@@ -71,14 +89,12 @@ def decide(case: Case) -> OrchestratorDecision:
 
     # ---- ESCALATE ------------------------------------------------------
     escalate_reasons = []
-    if unknown_present:
-        escalate_reasons.append("out-of-domain document present")
+    if unknown_only:
+        escalate_reasons.append("no recognizable ID or claim (out-of-domain submission)")
     if fraud_score >= FRAUD_ESCALATE_THRESHOLD:
         escalate_reasons.append(
             f"fraud_score {fraud_score:.2f} >= {FRAUD_ESCALATE_THRESHOLD}"
         )
-    if tamper:
-        escalate_reasons.append("suspected ID tampering")
     if low_conf:
         escalate_reasons.append("an agent reported confidence < 0.6")
 

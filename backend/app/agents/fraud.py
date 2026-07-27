@@ -25,7 +25,7 @@ import json
 import anthropic
 
 from ..config import CLASSIFIER_MODEL
-from ..llm import get_client
+from ..llm import cached_tool, get_client, system_block
 from ..schemas import Case, DocType, FraudOutput, RiskLevel
 from .vision import encode
 
@@ -85,14 +85,21 @@ def _rule_signals(case: Case) -> list[tuple[str, float]]:
 # ──────────────────────────────────────────────────────────────────────
 # LLM anomaly pass (temporal / cross-document)
 # ──────────────────────────────────────────────────────────────────────
-_LLM_SYSTEM = """You are a health-insurance fraud analyst. You are shown the \
-documents for a single claim case (which may include a discharge summary and a \
-prescription). Look specifically for two temporal red flags:
-1. readmission within 30 days: the discharge summary references a prior \
-hospitalization/admission that ended fewer than 30 days before the current one.
-2. date conflict: the prescription date is 45 or more days after the service / \
-discharge date, which is temporally implausible.
-Report only what the documents actually show."""
+_LLM_SYSTEM = """You are a health-insurance fraud analyst reviewing the documents \
+for a single claim case (which may include a discharge summary and a \
+prescription). Using the dates and details visible in the documents, identify \
+two temporal red flags:
+
+1. readmission within 30 days: the discharge summary indicates a prior \
+hospitalization/admission ending fewer than 30 days before the current \
+admission (a documented recent prior encounter).
+
+2. date conflict: the prescription date is roughly 45 or more days after the \
+service / discharge date, which is temporally implausible.
+
+Report what the documents actually show. Do NOT treat coverage or \
+medical-necessity concerns (e.g. a procedure that seems unrelated to the \
+diagnosis) as fraud — that is another agent's responsibility."""
 
 _LLM_TOOL = {
     "name": "record_fraud_anomalies",
@@ -137,8 +144,8 @@ def _llm_anomaly_pass(case: Case, client: anthropic.Anthropic) -> list[tuple[str
     response = client.messages.create(
         model=CLASSIFIER_MODEL,
         max_tokens=1024,
-        system=_LLM_SYSTEM,
-        tools=[_LLM_TOOL],
+        system=system_block(_LLM_SYSTEM),
+        tools=[cached_tool(_LLM_TOOL)],
         tool_choice={"type": "tool", "name": _LLM_TOOL["name"]},
         messages=[{"role": "user", "content": content}],
     )
