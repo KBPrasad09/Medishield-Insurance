@@ -118,6 +118,22 @@ class OrchestratorDecision(BaseModel):
     justification: str = ""
     agent_summaries: dict[str, str] = Field(default_factory=dict)
 
+    # Set when a human reviewer overrides the automated decision. Keeping the
+    # original decision alongside the override preserves the audit trail — you
+    # can always see what the system decided and who changed it.
+    overridden_by: Optional[str] = None
+    override_reason: Optional[str] = None
+    original_decision: Optional[Decision] = None
+    overridden_at: Optional[datetime] = None
+
+
+class OverrideRequest(BaseModel):
+    """A human reviewer's final call on an escalated case."""
+
+    decision: Decision
+    reviewer: str = "reviewer"
+    reason: str = ""
+
 
 # ──────────────────────────────────────────────────────────────────────
 # Persistence-facing models (API request / response shapes)

@@ -113,6 +113,17 @@ def update_case_status(case_id: str, status: CaseStatus) -> None:
         )
 
 
+def delete_case(case_id: str) -> bool:
+    """Remove a case and its documents. Returns False if it didn't exist."""
+    with _connect() as conn:
+        cur = conn.execute("SELECT 1 FROM cases WHERE case_id = ?", (case_id,))
+        if cur.fetchone() is None:
+            return False
+        conn.execute("DELETE FROM documents WHERE case_id = ?", (case_id,))
+        conn.execute("DELETE FROM cases WHERE case_id = ?", (case_id,))
+    return True
+
+
 def get_case(case_id: str) -> Optional[Case]:
     with _connect() as conn:
         row = conn.execute(
