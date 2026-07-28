@@ -1,16 +1,16 @@
 # MediShield — Evaluation Results
 
-_Generated 2026-07-27 16:46_
+_Generated 2026-07-28 10:03_
 
 ## Summary
 
 | Metric | Rubric weight | Score |
 |---|---|---|
-| Classification accuracy | 20% | **95.9%** (116/121) |
+| Classification accuracy | 20% | **96.1%** (149/155) |
 | Extraction completeness | 20% | **96.7%** (claim fields present) |
 | — CPT code recall | — | 100.0% |
 | Policy coverage accuracy | 15% | **100.0%** |
-| Decision correctness | 25% | **62.5%** (15/24) |
+| Decision correctness | 25% | **76.5%** (26/34) |
 
 ## Decision confusion matrix
 
@@ -18,20 +18,21 @@ Rows = expected, columns = predicted.
 
 | expected ↓ / got → | APPROVE | REJECT | ESCALATE |
 |---|---|---|---|
-| APPROVE | 3 | 3 | 0 |
-| REJECT | 1 | 7 | 2 |
-| ESCALATE | 0 | 3 | 5 |
+| APPROVE | 5 | 0 | 2 |
+| REJECT | 1 | 12 | 1 |
+| ESCALATE | 4 | 0 | 9 |
 
 ## Classification confusion (nonzero cells)
 
 | expected | predicted | count |
 |---|---|---|
-| CLAIM_FORM | CLAIM_FORM | 25 |
-| DISCHARGE_SUMMARY | DISCHARGE_SUMMARY | 24 |
-| ID_DOCUMENT | ID_DOCUMENT | 19 |
-| ID_DOCUMENT | UNKNOWN  ⟵ miss | 5 |
-| POLICY_AMENDMENT | POLICY_AMENDMENT | 24 |
-| PRESCRIPTION | PRESCRIPTION | 24 |
+| CLAIM_FORM | CLAIM_FORM | 31 |
+| DISCHARGE_SUMMARY | DISCHARGE_SUMMARY | 30 |
+| ID_DOCUMENT | ID_DOCUMENT | 24 |
+| ID_DOCUMENT | UNKNOWN  ⟵ miss | 6 |
+| POLICY_AMENDMENT | POLICY_AMENDMENT | 30 |
+| PRESCRIPTION | PRESCRIPTION | 30 |
+| UNKNOWN | UNKNOWN | 4 |
 
 ## Per-case decisions
 
@@ -42,22 +43,32 @@ Rows = expected, columns = predicted.
 | C_003 | ESCALATE | ESCALATE | ✅ | 0.85 | proc_diag_mismatch |
 | C_004 | ESCALATE | ESCALATE | ✅ | 0.8 | amount_under_10k |
 | C_005 | ESCALATE | ESCALATE | ✅ | 0.85 | duplicate_claim |
-| C_006 | ESCALATE | REJECT | ❌ | 0.0 | name_mismatch |
+| C_006 | ESCALATE | APPROVE | ❌ | 0.0 | name_mismatch |
 | C_007 | REJECT | REJECT | ✅ | 0.0 | uncovered_procedure |
 | C_008 | REJECT | REJECT | ✅ | 0.0 | missing_fields |
 | C_009 | REJECT | REJECT | ✅ | 0.0 | missing_fields |
 | C_010 | REJECT | REJECT | ✅ | 0.0 | expired_id |
 | C_011 | REJECT | REJECT | ✅ | 0.0 | expired_id |
 | C_012 | REJECT | ESCALATE | ❌ | 0.8 | uncovered_procedure |
-| C_013 | ESCALATE | REJECT | ❌ | 0.0 | tampered_id |
+| C_013 | ESCALATE | APPROVE | ❌ | 0.0 | tampered_id |
 | C_014 | REJECT | APPROVE | ❌ | 0.0 | expired_id |
 | C_015 | REJECT | REJECT | ✅ | 0.0 | uncovered_procedure |
-| C_016 | APPROVE | REJECT | ❌ | 0.0 | expiring_soon_id |
+| C_016 | APPROVE | ESCALATE | ❌ | 0.8 | expiring_soon_id |
 | C_017 | APPROVE | APPROVE | ✅ | 0.0 | clean |
-| C_018 | ESCALATE | REJECT | ❌ | 0.0 | tampered_id |
+| C_018 | ESCALATE | APPROVE | ❌ | 0.0 | tampered_id |
 | C_019 | APPROVE | APPROVE | ✅ | 0.0 | clean |
-| C_020 | REJECT | ESCALATE | ❌ | 0.8 | uncovered_procedure |
-| C_021 | APPROVE | REJECT | ❌ | 0.0 | expiring_soon_id |
-| C_022 | APPROVE | REJECT | ❌ | 0.0 | expiring_soon_id |
+| C_020 | REJECT | REJECT | ✅ | 0.0 | uncovered_procedure |
+| C_021 | APPROVE | APPROVE | ✅ | 0.0 | expiring_soon_id |
+| C_022 | APPROVE | ESCALATE | ❌ | 0.8 | expiring_soon_id |
 | C_023 | REJECT | REJECT | ✅ | 0.0 | missing_fields |
 | C_024 | APPROVE | APPROVE | ✅ | 0.0 | expiring_soon_id |
+| C_025 | REJECT | REJECT | ✅ | 0.0 | uncovered_procedure |
+| C_026 | APPROVE | APPROVE | ✅ | 0.0 | expiring_soon_id |
+| C_027 | REJECT | REJECT | ✅ | 0.0 | missing_fields |
+| C_028 | REJECT | REJECT | ✅ | 0.0 | expired_id |
+| C_029 | ESCALATE | APPROVE | ❌ | 0.0 | tampered_id |
+| C_030 | REJECT | REJECT | ✅ | 0.0 | expired_id |
+| unknown_blurry_scan_001 | ESCALATE | ESCALATE | ✅ | 0.0 | unknown |
+| unknown_bank_statement_001 | ESCALATE | ESCALATE | ✅ | 0.0 | unknown |
+| unknown_utility_bill_001 | ESCALATE | ESCALATE | ✅ | 0.0 | unknown |
+| unknown_blank_scan_001 | ESCALATE | ESCALATE | ✅ | 0.0 | unknown |

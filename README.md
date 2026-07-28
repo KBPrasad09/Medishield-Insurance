@@ -158,35 +158,45 @@ ground truth. Output goes to `eval/results.md`.
 
 | Metric | Score |
 |---|---|
-| Classification accuracy | 96% |
-| Extraction completeness | 97% |
+| Classification accuracy | 96.1% (116/121 documents) |
+| Extraction completeness | 96.7% of required claim fields |
 | CPT code recall | 100% |
 | Policy coverage accuracy | 100% |
-| Decision correctness | 70% |
+| Decision correctness | 76.5% (26/34 cases) |
 
-Classification, extraction and policy retrieval are stable across runs. Decision
-correctness moves, because it depends on the two signals below.
+Classification, extraction and policy retrieval are stable run to run. Decision
+correctness is the number that moves, and all eight misses trace back to two signals.
 
-### Where it gets things wrong
+### The eight it gets wrong
 
-**Tampered IDs.** The dataset marks tampering by drawing the expiry date in a slightly
-different font and colour. Prompts that catch it reliably also flag clean scans;
-prompts that stop the false alarms stop catching the real ones. Vision-language models
-are the wrong instrument for this. Error-level analysis on the image would be the right
-one, and it's the first thing I'd add.
+**Four escalations it misses.** Three are tampered IDs; one is the name-swap fraud. The
+dataset marks a tampered ID by drawing the expiry date in a slightly different font and
+colour, and marks the name swap by changing a single vowel — "Mary" becomes "Mery".
 
-**The name swap.** One fraud pattern changes a single vowel in the first name — "Mary"
-becomes "Mery". Vision models silently correct that when reading, so the ID reads as
-valid. Matching on last name plus date of birth recovers some of these, but not all.
+Neither is really a language problem. Prompts that catch the tampering reliably also
+flag clean scans, and prompts that stop the false alarms stop catching the real ones; I
+tried both ends and there's no wording that fixes both. For the name swap, vision models
+silently correct the spelling as they read, so the ID comes back looking valid. Matching
+on surname plus date of birth recovers some of them, not all.
 
-**C_004.** The dataset generator only applies the $9,875 structuring amount to CMS-1500
-claims. C_004 is a UB-04, so its rendered total is $22,040 and the structuring signal
-isn't on the page at all. Nothing can detect it from the image. This one is a bug in
-the data, not in the system.
+Because the tamper signal isn't precise enough to trust, it doesn't gate decisions — it
+goes to the reviewer as an advisory flag. Error-level analysis on the image is the right
+instrument here and it's the first thing I'd add.
 
-Both hard cases fail toward review rather than toward a wrong automatic decision, which
-is the direction you want in claims processing: a reviewer spending five minutes on a
-clean case costs far less than approving a fraudulent one.
+**Three fraud false positives**, where the temporal-anomaly pass reads a date
+inconsistency into a case that doesn't have one.
+
+**One missed expiry**, where the ID's EXPIRED mark wasn't picked up.
+
+There's also **C_004**, which is worth mentioning because it's a bug in the data rather
+than the system: the generator only applies the $9,875 structuring amount to CMS-1500
+claims, and C_004 is a UB-04. Its rendered total is $22,040, so the signal the case is
+meant to test isn't on the page at all. It happens to pass anyway, via a different
+signal.
+
+The errors skew toward review rather than toward wrong automatic decisions, which is the
+direction you want here. A reviewer spending five minutes on a clean case costs far less
+than auto-approving a fraudulent one.
 
 ---
 
@@ -205,12 +215,25 @@ pip install -r backend/requirements.txt
 cp .env.example .env            # then put your key in .env
 ```
 
-Build the reference data and the policy index once:
+The synthetic documents aren't in the repo — they're 150-odd images and two PDFs, and
+they're generated from a fixed seed, so the scripts reproduce them exactly. Run these
+once, from the project root:
+
+```bash
+python scripts/generate_docs.py           # 30 patient clusters → dataset/
+python scripts/generate_unknown.py        # 4 out-of-domain documents
+python scripts/generate_gold_policy.py    # Gold plan PDF
+python scripts/generate_silver_policy.py  # Silver plan PDF
+```
+
+Then build the reference data and the policy index:
 
 ```bash
 python scripts/build_reference_data.py    # member roster + ground truth
 python scripts/ingest_policies.py         # embeds both plan PDFs into Qdrant
 ```
+
+The first run of `ingest_policies.py` downloads a ~50 MB embedding model and caches it.
 
 Then start both servers. On Windows:
 

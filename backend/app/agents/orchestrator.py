@@ -81,7 +81,13 @@ def decide(case: Case) -> OrchestratorDecision:
         confidences.append(fraud.confidence)
     low_conf = any(c < CONFIDENCE_THRESHOLD for c in confidences)
 
-    kyc_failed = any(not k.kyc_passed for k in kyc_list)
+    # Identity failure means the person isn't verifiable: not on the member roster,
+    # or the ID carries an explicit EXPIRED mark. A tamper suspicion alone is NOT an
+    # identity failure — it's a low-precision advisory signal (see above), and letting
+    # it reject a case would auto-deny people whose ID merely scanned oddly.
+    kyc_failed = any(
+        (not k.member_id_matched) or k.id_expired for k in kyc_list
+    )
     schema_invalid = any(not c.schema_valid for c in claims_list)
     not_covered = any(not p.covered for p in policy_list)
 

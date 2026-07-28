@@ -145,18 +145,19 @@ It'll sit on the processing banner. Keep talking:
 > real pipeline and scores them against the dataset's ground truth.
 >
 > Classification 96%. Extraction 97%, with full CPT recall. Policy coverage 100%.
-> Decision correctness [YOUR NUMBER].
+> Decisions, 26 of 34.
 
 **Then be straight about the misses:**
 
-> Two things it doesn't do well. Tampered IDs — the dataset marks those by drawing the
-> expiry date in a slightly different font, and prompts that catch it reliably also
-> flag clean scans. That's a pixel problem, not a language problem, so I stopped
-> treating the model's tamper flag as a decision gate and made it advisory. Error-level
-> analysis is the right tool and it's the first thing I'd add.
+> Eight wrong, and they come down to two signals. Tampered IDs — the dataset marks
+> those by drawing the expiry date in a slightly different font, and prompts that catch
+> it reliably also flag clean scans. I tried both ends of that and there's no wording
+> that fixes both. It's a pixel problem, not a language problem, so I stopped treating
+> the model's tamper flag as a decision gate and made it advisory. Error-level analysis
+> is the right tool and it's the first thing I'd add.
 >
-> The other is a name-swap fraud where one vowel changes. Vision models silently
-> correct the spelling when they read it, so it comes back looking valid.
+> The other is a name-swap fraud where one vowel changes — Mary to Mery. Vision models
+> silently correct the spelling as they read, so it comes back looking valid.
 
 ---
 
