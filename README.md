@@ -7,6 +7,8 @@ the procedure, and notice when something looks wrong.
 
 This is a system that does that work and hands the hard cases to a person.
 
+**Demo video:** _(link)_
+
 A submission comes in as a set of images. Six agents process it — one classifies each
 page, three extract and validate specific things, one looks for fraud across the whole
 case, and one makes the call. Cases that are clear get approved or rejected
@@ -205,8 +207,8 @@ than auto-approving a fraudulent one.
 You need Python 3.12, Node 18+, and an Anthropic API key.
 
 ```bash
-git clone <repo-url>
-cd MediShield-Insurance
+git clone https://github.com/KBPrasad09/Medishield-Insurance.git
+cd Medishield-Insurance
 
 python -m venv .venv
 .venv\Scripts\activate          # macOS/Linux: source .venv/bin/activate
@@ -234,6 +236,8 @@ python scripts/ingest_policies.py         # embeds both plan PDFs into Qdrant
 ```
 
 The first run of `ingest_policies.py` downloads a ~50 MB embedding model and caches it.
+What gets generated is described in [`dataset_summary.md`](dataset_summary.md): 151
+documents across 30 patient clusters, six of which carry an injected fraud pattern.
 
 Then start both servers. On Windows:
 
