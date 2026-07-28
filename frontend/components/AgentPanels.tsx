@@ -193,11 +193,16 @@ export function FraudPanel({ data }: { data: FraudOutput }) {
   const notes = data.anomalies.filter((a) => a.startsWith("note:"));
   return (
     <Panel
-      title="Fraud Detection"
+      title="Fraud Detection — whole case"
       accent="bg-rose-500"
       badge={<RiskBadge risk={data.risk_level} score={data.fraud_score} />}
       defaultOpen={data.fraud_score >= 0.3}
     >
+      <p className="mb-2 rounded bg-slate-50 p-2 text-xs text-slate-600">
+        Scored across every document in this case, not the one selected — the
+        patterns it looks for (duplicate claims, conflicting dates) only exist
+        between documents.
+      </p>
       <Row label="Fraud score" value={data.fraud_score.toFixed(2)} />
       <Row label="Risk level" value={data.risk_level} />
       {signals.length > 0 && (

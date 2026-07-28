@@ -176,12 +176,18 @@ export default function CaseDetailPage({ params }: { params: { id: string } }) {
         {/* Agent outputs for the selected document + case-level fraud */}
         <div className="space-y-3">
           <h2 className="text-sm font-semibold text-slate-500">
-            Agent outputs
+            Selected document
           </h2>
           {doc?.classification && <ClassifierPanel data={doc.classification} />}
           {doc?.kyc && <KYCPanel data={doc.kyc} />}
           {doc?.claims && <ClaimsPanel data={doc.claims} />}
           {doc?.policy && <PolicyPanel data={doc.policy} />}
+
+          {data.fraud && (
+            <h2 className="pt-3 text-sm font-semibold text-slate-500">
+              Case level
+            </h2>
+          )}
           {data.fraud && <FraudPanel data={data.fraud} />}
           {!data.fraud && (
             <p className="rounded-lg border border-dashed border-slate-300 p-4 text-sm text-slate-400">
