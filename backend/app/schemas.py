@@ -87,6 +87,11 @@ class KYCOutput(BaseAgentOutput):
     id_expired: bool = False
     tamper_suspected: bool = False
 
+    # Error Level Analysis on the ID image: how anomalous the most deviant image
+    # block is. Advisory only — measured to carry no signal on this dataset
+    # (see eval/ela_findings.md), so it is shown to reviewers but gates nothing.
+    ela_top_z: Optional[float] = None
+
 
 class ClaimsOutput(BaseAgentOutput):
     claim_amount: Optional[float] = None

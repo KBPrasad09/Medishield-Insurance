@@ -68,6 +68,15 @@ def _norm(s: str | None) -> str:
 def run_kyc(image_path: str, client=None) -> KYCOutput:
     data = extract(image_path, _SYSTEM_PROMPT, _TOOL, client=client)
 
+    # Image forensics (ELA) — advisory. Measured to carry no signal on this
+    # dataset (eval/ela_findings.md), so it is reported, never acted on.
+    try:
+        from ..forensics import ela_score
+
+        ela = ela_score(image_path)["top_z"]
+    except Exception:  # noqa: BLE001 - forensics must never break intake
+        ela = None
+
     full_name = data.get("full_name", "")
     dob = data.get("dob", "")
     id_expired = bool(data.get("appears_expired", False))
@@ -105,6 +114,7 @@ def run_kyc(image_path: str, client=None) -> KYCOutput:
         member_id_matched=member_id_matched,
         id_expired=id_expired,
         tamper_suspected=tampered,
+        ela_top_z=ela,
         confidence=float(data.get("confidence", 0.0)),
         flags=flags,
         notes=notes,

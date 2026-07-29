@@ -52,12 +52,23 @@ def _parse_with_pymupdf(pdf_path: Path) -> str:
 
 
 def parse_pdf(pdf_path: Path) -> str:
-    """Docling first (per brief), PyMuPDF fallback."""
+    """Docling first (per brief), PyMuPDF fallback.
+
+    Docling gives layout-aware markdown — headings stay headings and tables stay
+    tables — which matters here because chunking keys off section headings and
+    the exclusion ranges live in a table. PyMuPDF returns a flatter text stream;
+    the chunker copes, but it's the weaker input. The fallback exists so a heavy
+    optional dependency can never stop the pipeline from running.
+    """
     try:
-        return _parse_with_docling(pdf_path)
+        text = _parse_with_docling(pdf_path)
+        print(f"[policy_rag] Parsed {pdf_path.name} with Docling ({len(text)} chars).")
+        return text
     except Exception as exc:  # noqa: BLE001
         print(f"[policy_rag] Docling unavailable ({exc}); using PyMuPDF fallback.")
-        return _parse_with_pymupdf(pdf_path)
+        text = _parse_with_pymupdf(pdf_path)
+        print(f"[policy_rag] Parsed {pdf_path.name} with PyMuPDF ({len(text)} chars).")
+        return text
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -107,10 +118,18 @@ def ingest_policies(policy_dir: Path | None = None) -> int:
     """(Re)build the policy collection from the PDFs. Returns chunk count."""
     policy_dir = policy_dir or POLICY_DIR
     client = _client()
-    try:
+
+    # Drop the old collection before rebuilding. This must be verified, not
+    # attempted: chunk ids are sequential, so if a delete quietly fails and the
+    # new parse produces fewer chunks than the old one, the surplus ids survive
+    # and the index ends up serving a mix of two different parses.
+    if client.collection_exists(COLLECTION):
         client.delete_collection(COLLECTION)
-    except Exception:  # noqa: BLE001
-        pass
+        if client.collection_exists(COLLECTION):
+            raise RuntimeError(
+                f"Could not delete existing collection {COLLECTION!r}. "
+                "Stop the API server (it holds the Qdrant lock) and retry."
+            )
 
     docs, metas, ids = [], [], []
     cid = 0
@@ -128,6 +147,12 @@ def ingest_policies(policy_dir: Path | None = None) -> int:
 
     if docs:
         client.add(collection_name=COLLECTION, documents=docs, metadata=metas, ids=ids)
+        stored = client.count(COLLECTION).count
+        if stored != len(docs):
+            raise RuntimeError(
+                f"Index has {stored} chunks but {len(docs)} were ingested — "
+                "stale data from a previous run is still present."
+            )
     return len(docs)
 
 

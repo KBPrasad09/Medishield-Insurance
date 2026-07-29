@@ -12,3 +12,4 @@ backend/.chroma/
 backend/.qdrant/
 dataset/ground_truth.json
 eval/agent_cache.json
+eval/_ela_tmp/

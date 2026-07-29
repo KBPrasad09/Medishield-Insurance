@@ -69,6 +69,25 @@ def _persist(state: CaseState) -> CaseState:
         db.set_case_fraud(case_id, state["fraud"])
     decision = state.get("decision")
     if decision:
+        # A human's decision outranks a re-run. If a reviewer has already ruled
+        # on this case, keep their verdict and record what the system would now
+        # say in the justification — losing an override to a background re-run
+        # would break the audit trail.
+        existing = state.get("case").decision if state.get("case") else None
+        if existing and existing.overridden_by:
+            decision.decision = existing.decision
+            decision.overridden_by = existing.overridden_by
+            decision.override_reason = existing.override_reason
+            decision.original_decision = existing.original_decision
+            decision.overridden_at = existing.overridden_at
+            decision.justification = (
+                f"Reviewer decision retained ({existing.decision.value} by "
+                f"{existing.overridden_by}). Re-run on current documents would "
+                f"have said: {decision.justification}"
+            )
+            log.info("Decision %s -> kept reviewer override (%s)",
+                     case_id, existing.decision.value)
+
         db.set_case_decision(case_id, decision)
         status = (CaseStatus.NEEDS_REVIEW
                   if decision.decision == Decision.ESCALATE

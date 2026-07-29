@@ -37,14 +37,45 @@ def cached_tool(tool: dict) -> dict:
     return {**tool, "cache_control": {"type": "ephemeral"}}
 
 
+def _wrap_for_tracing(client: anthropic.Anthropic) -> anthropic.Anthropic:
+    """Attach LangSmith tracing, tolerating differences between SDK versions.
+
+    `wrap_anthropic` moved around across langsmith releases, so we try the public
+    path, then the private module, then fall back to decorating the one method we
+    care about with @traceable. Tracing is observability — it must never be able
+    to take down the pipeline it is observing, so every failure degrades to a
+    plain client.
+    """
+    try:
+        from langsmith.wrappers import wrap_anthropic
+
+        return wrap_anthropic(client)
+    except (ImportError, AttributeError):
+        pass
+
+    try:
+        from langsmith.wrappers._anthropic import wrap_anthropic
+
+        return wrap_anthropic(client)
+    except (ImportError, AttributeError):
+        pass
+
+    # Last resort: trace the single call every agent makes.
+    from langsmith import traceable
+
+    client.messages.create = traceable(  # type: ignore[method-assign]
+        run_type="llm", name="anthropic.messages.create"
+    )(client.messages.create)
+    print("[llm] LangSmith: using traceable fallback (older langsmith SDK).")
+    return client
+
+
 def get_client() -> anthropic.Anthropic:
     # max_retries handles transient 429/500/529 (overloaded) with backoff.
     client = anthropic.Anthropic(api_key=require_api_key(), max_retries=6)
     if _TRACE:
         try:
-            from langsmith.wrappers import wrap_anthropic
-
-            return wrap_anthropic(client)
+            return _wrap_for_tracing(client)
         except Exception as exc:  # noqa: BLE001 - tracing is best-effort
             print(f"[llm] LangSmith tracing unavailable ({exc}); using plain client.")
     return client

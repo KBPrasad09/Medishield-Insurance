@@ -64,9 +64,9 @@ Per-document agents run in a FastAPI `BackgroundTask` as soon as a file is uploa
 The case-level part (fraud, then the decision) is a LangGraph `StateGraph`, because it
 needs every document present before it can run.
 
-**Backend** — FastAPI, SQLite for cases and documents, Qdrant for policy embeddings,
-LangGraph for the decision state machine, Claude Sonnet for every vision and reasoning
-call.
+**Backend** — FastAPI, SQLite for cases and documents, Docling for policy-PDF parsing,
+Qdrant for the embeddings, LangGraph for the decision state machine, Claude Sonnet for
+every vision and reasoning call.
 
 **Frontend** — Next.js with the App Router, TypeScript, Tailwind.
 
@@ -171,34 +171,50 @@ correctness is the number that moves, and all eight misses trace back to two sig
 
 ### The eight it gets wrong
 
-**Four escalations it misses.** Three are tampered IDs; one is the name-swap fraud. The
-dataset marks a tampered ID by drawing the expiry date in a slightly different font and
-colour, and marks the name swap by changing a single vowel — "Mary" becomes "Mery".
+**Three tampered IDs — and the tampering isn't in the images.** These were the cases I
+spent longest on, tuning the KYC prompt until wording that caught them stopped flagging
+clean scans. Nothing worked in both directions, which was the clue.
 
-Neither is really a language problem. Prompts that catch the tampering reliably also
-flag clean scans, and prompts that stop the false alarms stop catching the real ones; I
-tried both ends and there's no wording that fixes both. For the name swap, vision models
+Reading the generator explains why. `generate_docs.py` has a tamper branch that draws
+the expiry date in a larger font and a different colour, but the dispatcher never passes
+the argument:
+
+```python
+def generate_id_document(c, expired=False, blur=False):
+    return _ID_GENERATORS[c["id_type"]](c, expired=expired, blur=blur)
+```
+
+`tampered=` appears at no call site, so that branch is dead code. And the three flagged
+patients drew `state_id` and `insurance_card` templates, whose functions don't take a
+`tampered` parameter at all. Put a flagged card next to a clean one of the same template
+and they're identical but for the member's own data.
+
+So these three are undetectable by any method. Prompt wording that seemed to "catch
+tampering" was guessing on clean documents and getting credit by coincidence — which is
+the strongest possible argument for the design choice above, that an unreliable signal
+should inform a reviewer rather than gate a decision. Full write-up, including a
+measured ELA experiment and a control:
+[`eval/ela_findings.md`](eval/ela_findings.md).
+
+**One missed name swap.** One vowel changes — "Mary" becomes "Mery". Vision models
 silently correct the spelling as they read, so the ID comes back looking valid. Matching
-on surname plus date of birth recovers some of them, not all.
-
-Because the tamper signal isn't precise enough to trust, it doesn't gate decisions — it
-goes to the reviewer as an advisory flag. Error-level analysis on the image is the right
-instrument here and it's the first thing I'd add.
+on surname plus date of birth recovers some of these, not all. This one is a real
+limitation.
 
 **Three fraud false positives**, where the temporal-anomaly pass reads a date
-inconsistency into a case that doesn't have one.
+inconsistency into a case that doesn't have one. Also real.
 
 **One missed expiry**, where the ID's EXPIRED mark wasn't picked up.
 
-There's also **C_004**, which is worth mentioning because it's a bug in the data rather
-than the system: the generator only applies the $9,875 structuring amount to CMS-1500
-claims, and C_004 is a UB-04. Its rendered total is $22,040, so the signal the case is
-meant to test isn't on the page at all. It happens to pass anyway, via a different
-signal.
+**C_004** is a fourth data bug: the generator only applies the $9,875 structuring amount
+to CMS-1500 claims, and C_004 is a UB-04, so its rendered total is $22,040 and the
+signal the case tests for isn't on the page. It passes anyway, via a different signal.
 
-The errors skew toward review rather than toward wrong automatic decisions, which is the
-direction you want here. A reviewer spending five minutes on a clean case costs far less
-than auto-approving a fraudulent one.
+Setting the three impossible cases aside, the achievable ceiling is 31/34 and the system
+reaches 26 of those — **84% of what the data allows**. The remaining errors skew toward
+review rather than toward wrong automatic decisions, which is the direction you want. A
+reviewer spending five minutes on a clean case costs far less than auto-approving a
+fraudulent one.
 
 ---
 
@@ -235,7 +251,12 @@ python scripts/build_reference_data.py    # member roster + ground truth
 python scripts/ingest_policies.py         # embeds both plan PDFs into Qdrant
 ```
 
-The first run of `ingest_policies.py` downloads a ~50 MB embedding model and caches it.
+`ingest_policies.py` parses both plan PDFs with Docling — layout-aware markdown, so
+section headings stay headings and the excluded-CPT-range table stays a table, which is
+what the chunker splits on and what the Policy agent ends up citing. PyMuPDF is wired as
+a fallback so a heavy optional dependency can't block the pipeline; the log states which
+parser ran. First run also downloads a ~50 MB embedding model and caches it. Expect 41
+chunks (24 Gold, 17 Silver).
 What gets generated is described in [`dataset_summary.md`](dataset_summary.md): 151
 documents across 30 patient clusters, six of which carry an injected fraud pattern.
 
@@ -311,6 +332,25 @@ which is how the decision rules were tuned without paying for a full run each ti
 
 Setting `LANGSMITH_TRACING=true` in `.env` traces every agent call — tokens, latency,
 inputs, outputs — with no change to agent code. It's wired in `llm.py`.
+
+---
+
+## Bonus challenges
+
+**LangSmith tracing** — every agent call is traced with tokens, latency and full I/O.
+Because all six agents get their client from one factory in `llm.py`, wiring this
+touched one file and no agent code. Enable with `LANGSMITH_TRACING=true`.
+
+**Tamper detection (ELA)** — implemented in `backend/app/forensics.py` and reported on
+the KYC output as `ela_top_z`. Then measured, with a control, in
+[`eval/ela_findings.md`](eval/ela_findings.md): it carries no signal on this dataset,
+because the documents are synthetic renders whose error maps are dominated by glyph
+edges — and because, as above, the tampering was never drawn. It's surfaced to reviewers
+and gates nothing. Reproduce with `python scripts/ela_experiment.py`.
+
+**Prompt caching** (not on the list, but the same category) — system prompts and tool
+schemas are marked `cache_control`, and the eval harness caches agent outputs so
+decision rules can be re-scored with `--replay` at zero API cost.
 
 ---
 
